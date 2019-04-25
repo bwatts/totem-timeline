@@ -1,0 +1,21 @@
+{
+  "name": "totem-timeline-react",
+  "version": "1.0.0-beta.1",
+  "description": "Totem timeline bindings for user interfaces written in React.",
+  "main": "index.js",
+  "author": "Totem Contributors",
+  "license": "MIT",
+  "devDependencies": {
+    "babel-core": "^6.26.3",
+    "babel-loader": "^7.1.4",
+    "babel-plugin-transform-es2015-classes": "^6.24.1",
+    "babel-preset-env": "^1.7.0",
+    "webpack": "^4.26.1",
+    "webpack-cli": "^3.1.2",
+    "webpack-node-externals": "^1.7.2"
+  },
+  "dependencies": {
+    "react": "^16.8.6",
+    "totem-timeline": "file:../totem-timeline/dist/totem-timeline-1.0.0.tgz"
+  }
+}
