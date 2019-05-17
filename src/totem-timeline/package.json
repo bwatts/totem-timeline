@@ -1,10 +1,18 @@
 {
   "name": "totem-timeline",
-  "version": "0.0.1",
+  "version": "1.0.0-beta.1",
   "description": "Implements the Totem timeline in a JavaScript runtime.",
+  "keywords": [
+    "totem",
+    "timeline"
+  ],
   "main": "index.js",
   "author": "Totem Contributors",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bwatts/totem-timeline.git"
+  },
   "files": [
     "index.js",
     "index.js.map"

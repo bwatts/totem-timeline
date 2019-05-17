@@ -1,0 +1,37 @@
+version: 1.0.0-beta.{build}
+
+branches:
+  only:
+  - master
+
+pull_requests:
+  do_not_increment_build_number: true
+
+matrix:
+  fast_finish: true
+
+build: off
+test: off
+
+environment:
+  NODEJS_VERSION: '10'
+  NPM_TOKEN:
+    secure: 5s43wPRGbpE8eLDtxd/If1rqYP120lHfgEmFM+xhHnxuWj/iiaaqfStWk2jYZKrV
+
+install:
+  - set NODE_ENV=development
+  - ps: Install-Product node $env:NODEJS_VERSION
+  - cmd: npm install webpack --global --silent
+  - cmd: npm install webpack-cli --global --silent
+
+build_script:
+  - cmd: powershell -file build.ps1 -version %APPVEYOR_BUILD_VERSION%
+
+deploy_script:
+  - cmd: powershell -file deploy.ps1 -npmToken %NPM_TOKEN% -details
+
+cache:
+  - '%AppData%\npm\node_modules'
+  - src\totem-timeline\node_modules -> src\totem-timeline\package.json
+  - src\totem-timeline-react\node_modules -> src\totem-timeline-react\package.json
+  - src\totem-timeline-signalr\node_modules -> src\totem-timeline-signalr\package.json

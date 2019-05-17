@@ -272,7 +272,7 @@ class WebClient {
     let { etag } = this.state;
     
     if(etag) {
-      queryHub.unsubscribeFromChanged(etag.toString()).catch(error => {/* Binding is already gone */});
+      queryHub.unsubscribeFromChanged(etag.key).catch(() => {/* Binding is already gone */});
     }
   }
 }

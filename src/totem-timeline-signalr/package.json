@@ -2,9 +2,23 @@
   "name": "totem-timeline-signalr",
   "version": "1.0.0-beta.1",
   "description": "Totem timeline bindings for server-side query hubs defined by SignalR.",
+  "keywords": [
+    "totem",
+    "timeline",
+    "signalr",
+    "ui"
+  ],
   "main": "index.js",
   "author": "Totem Contributors",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bwatts/totem-timeline.git"
+  },
+  "files": [
+    "index.js",
+    "index.js.map"
+  ],
   "devDependencies": {
     "babel-core": "^6.26.3",
     "babel-loader": "^7.1.4",
@@ -15,6 +29,6 @@
   },
   "dependencies": {
     "@aspnet/signalr": "^1.1.4",
-    "totem-timeline": "file:../totem-timeline/dist/totem-timeline-1.0.0.tgz"
+    "totem-timeline": "file:../totem-timeline/dist/totem-timeline-1.0.0-beta.1.tgz"
   }
 }

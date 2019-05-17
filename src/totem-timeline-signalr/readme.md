@@ -1,0 +1,1 @@
+Totem timeline bindings for server-side query hubs defined by SignalR.

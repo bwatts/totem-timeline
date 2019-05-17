@@ -2,9 +2,23 @@
   "name": "totem-timeline-react",
   "version": "1.0.0-beta.1",
   "description": "Totem timeline bindings for user interfaces written in React.",
+  "keywords": [
+    "totem",
+    "timeline",
+    "react",
+    "ui"
+  ],
   "main": "index.js",
   "author": "Totem Contributors",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bwatts/totem-timeline.git"
+  },
+  "files": [
+    "index.js",
+    "index.js.map"
+  ],
   "devDependencies": {
     "babel-core": "^6.26.3",
     "babel-loader": "^7.1.4",
@@ -16,6 +30,6 @@
   },
   "dependencies": {
     "react": "^16.8.6",
-    "totem-timeline": "file:../totem-timeline/dist/totem-timeline-1.0.0.tgz"
+    "totem-timeline": "file:../totem-timeline/dist/totem-timeline-1.0.0-beta.1.tgz"
   }
 }
