@@ -38,6 +38,10 @@ class QueryType extends FlowType {
   }
 
   getId(args) {
+    if(args && typeof args === "function") {
+      args = args();
+    }
+
     return !this.argsToId ? "" : this.argsToId(args);
   }
 
