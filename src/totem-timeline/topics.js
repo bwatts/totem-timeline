@@ -1,6 +1,11 @@
-import { appendEvent, scheduleEvent, FlowType, FlowScope } from "./flows";
+import { appendEvent, scheduleEvent } from "./events";
+import { FlowType, FlowScope } from "./flows";
 
-export function declareTopic(declaration) {
+//
+// Declare a timeline type for the specified topic declaration
+//
+
+export default function(declaration) {
   FlowType.declare(new TopicType(declaration));
 }
 
@@ -14,49 +19,81 @@ class TopicType extends FlowType {
   }
 }
 
+//
+// The scope of a topic's activity on the timeline
+//
+
 class TopicScope extends FlowScope {
+  call = null;
+
   constructor(type, id) {
     super(type, id);
+
+    if(this.flow.then) {
+      throw new Error("The .then property of a topic is reserved for timeline use");
+    }
+
+    this.flow.then = (type, data) => {
+      this.expectCall();
+      this.call.addEvent({ type, data });
+    };
+
+    this.flow.then.schedule = (whenOccurs, type, data) => {
+      this.expectCall();
+      this.call.addEvent({ whenOccurs, type, data });
+    };
+  }
+
+  expectCall() {
+    if(!this.call) {
+      throw new Error("Topic must be making a call to perform this operation");
+    }
   }
 
   observe(e, observation) {
     return Promise.resolve()
-      .then(() => this.observeCore(e, observation))
-      .catch(error => this.onObserveFailed(e, observation, error));
+      .then(() => this.makeCall(e, observation))
+      .catch(error => this.stop(e, observation, error));
   }
   
-  observeCore(e, observation) {
-    let newEvents = [];
+  makeCall(e, observation) {
+    this.call = new TopicCall(e.$position);
 
-    let then = (type, data) =>
-      newEvents.push({ type, data });
-
-    then.schedule = (whenOccurs, type, data) =>
-      newEvents.push({ whenOccurs, type, data });
-
-    then.done = (type, data) => {
-      if(type) {
-        then(type, data);
-      }
-
-      this.done = true;
-    };
-    
     return Promise
-      .resolve(observation.method.call(this.flow, e, then))
-      .then(() => {
-        this.addEvents(e.$position, newEvents);
-        this.onObserved();
-      });
+      .resolve(observation.method.call(this.flow, e))
+      .then(result => {
+        this.call.appendNewEvents();
+
+        if(result === false) {
+          this.deleteFromType();
+        }
+      })
+      .finally(() => this.call = null);
   }
-  
-  addEvents(cause, newEvents) {
-    for(let { whenOccurs, type, data } of newEvents) {
+}
+
+//
+// A single call to a topic observation
+//
+
+class TopicCall {
+  newEvents = [];
+
+  constructor(cause) {
+    this.cause = cause;
+  }
+
+  addEvent(e) {
+    this.newEvents.push(e);
+  }
+
+  appendNewEvents() {
+    for(let { whenOccurs, type, data } of this.newEvents) {
       if(whenOccurs) {
-        scheduleEvent(whenOccurs, cause, type, data);
+        scheduleEvent(this.cause, whenOccurs, type, data);
       }
       else {
-        appendEvent(cause, type, data);
+        appendEvent(this.cause, type, data);
       }
     }
   }

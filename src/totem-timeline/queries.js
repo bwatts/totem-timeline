@@ -1,9 +1,14 @@
 import Moment from "moment";
 import { FlowType, FlowScope } from "./flows";
 
-export function declareQuery(first, second) {
-  let declaration = second || first;
-  let argsToId = second ? first : null;
+//
+// Declare a timeline type for the specified query declaration. If the query is
+// multi-instance, the first argument is an id selector.
+//
+
+export default function(arg0, arg1) {
+  let declaration = arg1 || arg0;
+  let argsToId = arg1 ? arg0 : null;
 
   let type = new QueryType(declaration, argsToId);
 
@@ -23,38 +28,84 @@ class QueryType extends FlowType {
     super(declaration);
 
     if(this.isMultiInstance && !argsToId) {
-      throw new Error(`Multi-instance queries require an id selector: Timeline.query(args => args.[idProp], ...`);
+      throw new Error(`Multi-instance queries require an id selector: Timeline.query(args => [select id], ...`);
     }
 
     this.argsToId = argsToId;
-  }
-
-  openScope(id) {
-    return new QueryScope(this, id);
   }
 
   bind(args, notify) {
     return new QueryBinding(this, args, notify);
   }
 
-  getId(args) {
-    if(args && typeof args === "function") {
+  openScope(id) {
+    return new QueryScope(this, id);
+  }
+
+  resolveId(args) {
+    if(!this.argsToId) {
+      return "";
+    }
+
+    while(typeof args === "function") {
       args = args();
     }
 
-    return !this.argsToId ? "" : this.argsToId(args);
+    return this.argsToId(args) || "";
   }
 
   getOrOpenScope(id) {
-    let query = this.flowsById.get(id);
+    let scope = this.scopesById.get(id);
 
-    if(!query) {
-      query = this.openScope(id);
+    if(!scope) {
+      scope = this.openScope(id);
 
-      this.flowsById.set(id, query);
+      this.scopesById.set(id, scope);
     }
 
-    return query;
+    return scope;
+  }
+}
+
+//
+// Observes changes in a query and notifies observers of new data
+//
+
+class QueryBinding {
+  constructor(type, args, notify) {
+    this.type = type;
+    this.args = args;
+    this.notify = notify;
+
+    this.resolveId = () => type.resolveId(args);
+  }
+
+  subscribe() {
+    this.scope = this.type.getOrOpenScope(this.resolveId());
+
+    this.scope.subscribe(this);
+  }
+
+  resubscribeIfArgsChanged() {
+    let id = this.resolveId();
+
+    if(id !== this.scope.id) {
+      this.scope.unsubscribe(this);
+
+      this.scope = this.type.getOrOpenScope(id);
+
+      this.scope.subscribe(this);
+    }
+  }
+
+  unsubscribe() {
+    this.scope.unsubscribe(this);
+  }
+
+  update(data) {
+    this.data = data;
+
+    this.notify();
   }
 }
 
@@ -83,7 +134,7 @@ class QueryScope extends FlowScope {
     this.bindings.delete(binding);
 
     if(this.bindings === 0 && this.isNew) {
-      this.type.deleteFlow(this.id);
+      this.type.deleteScope(this.id);
     }
   }
   
@@ -91,16 +142,18 @@ class QueryScope extends FlowScope {
     this.isNew = false;
 
     try {
-      observation.method.call(this.flow, e, () => this.done = true);
+      let result = observation.method.call(this.flow, e);
+
+      if(result === false) {
+        this.deleteFromType();
+      }
 
       this.flow.$whenChanged = Moment();
 
       this.updateBindings();
-
-      this.onObserved();
     }
     catch(error) {
-      this.onObserveFailed(e, observation, error);
+      this.stop(e, observation, error);
     }
 
     return Promise.resolve();
@@ -124,49 +177,5 @@ class QueryScope extends FlowScope {
     for(let binding of this.bindings) {
       binding.update(data);
     }
-  }
-}
-
-//
-// Observes changes in a query
-//
-
-class QueryBinding {
-  constructor(type, args, notify) {
-    this.type = type;
-    this.args = args;
-    this.notify = notify;
-
-    this.query = type.getOrOpenScope(type.getId(args));
-
-    this.data = this.query.toData();
-  }
-
-  subscribe() {
-    this.query.subscribe(this);
-  }
-
-  resubscribeIfArgsChanged() {
-    let id = this.type.getId(this.args);
-
-    if(id !== this.query.id) {
-      this.query.unsubscribe(this);
-
-      this.query = this.type.getOrOpenScope(id);
-
-      this.query.subscribe(this);
-
-      this.update(this.query.toData());
-    }
-  }
-
-  unsubscribe() {
-    this.query.unsubscribe(this);
-  }
-
-  update(data) {
-    this.data = data;
-
-    this.notify();
   }
 }

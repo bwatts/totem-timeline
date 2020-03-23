@@ -1,11 +1,11 @@
 {
-  "name": "totem-timeline-signalr",
+  "name": "totem-timeline-vue",
   "version": "1.0.0-beta.1",
-  "description": "Totem timeline bindings for server-side query hubs defined by SignalR.",
+  "description": "Totem timeline bindings for user interfaces written in Vue.",
   "keywords": [
     "totem",
     "timeline",
-    "signalr",
+    "vue",
     "ui"
   ],
   "main": "index.js",
@@ -32,7 +32,6 @@
     "webpack-node-externals": "^1.7.2"
   },
   "dependencies": {
-    "@aspnet/signalr": "^1.1.4",
     "totem-timeline": "file:../totem-timeline/dist/totem-timeline-1.0.0-beta.8.tgz"
   }
 }

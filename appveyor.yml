@@ -33,5 +33,5 @@ deploy_script:
 cache:
   - '%AppData%\npm\node_modules'
   - src\totem-timeline\node_modules -> src\totem-timeline\package.json
-  - src\totem-timeline-react\node_modules -> src\totem-timeline-react\package.json
   - src\totem-timeline-signalr\node_modules -> src\totem-timeline-signalr\package.json
+  - src\totem-timeline-vue\node_modules -> src\totem-timeline-vue\package.json
