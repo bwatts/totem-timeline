@@ -1,6 +1,6 @@
 param([Parameter(Mandatory)][string] $version, [switch] $details)
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 
 function Remove-DistFolder() {
   $dist = "$(Get-Location)\dist"
@@ -57,14 +57,6 @@ function Run($prefix, $command) {
   }
 }
 
-function RunNpm($package, $command) {
-  $ErrorActionPreference = "Continue"
-
-  Run $package $command
-
-  $ErrorActionPreference = "Stop"
-}
-
 $repo = Split-Path -parent $PSCommandPath
 
 Write-Host ""
@@ -74,11 +66,11 @@ foreach($package in "totem-timeline", "totem-timeline-signalr", "totem-timeline-
 
   Run $package "Remove-DistFolder"
   Run $package "Replace-PreBuildVersions"
-  RunNpm $package "npm install --no-progress"
+  Run $package "npm install --no-progress"
   Run $package "webpack"
   Run $package "copy package.json dist"
   Run $package "copy readme.md dist"
   Run $package "cd dist"
   Run "$package\dist" "Replace-PostBuildVersions"
-  RunNpm "$package\dist" "npm pack`n"
+  Run "$package\dist" "npm pack`n"
 }
