@@ -4,14 +4,14 @@ var nodeExternals = require("webpack-node-externals");
 module.exports = {
   mode: "development",
   context: path.resolve(__dirname),
-  entry: "./ui.js",
+  entry: "./index.js",
   resolve: {
     extensions: [".js"]
   },
   output: {
 		path: path.join(__dirname, "dist"),
-    filename: "index.js",
-    library: "totem-timeline-react",
+		filename: "index.js",
+    library: "totem-timeline-vue",
     libraryTarget: "umd",
     libraryExport: "default"
   },
@@ -24,8 +24,13 @@ module.exports = {
         test: /\.js$/,
         loader: "babel-loader",
         exclude: /node_modules/,
-        query: {
-          presets: ["env"]
+        options: {
+          presets: ["@babel/preset-env"],
+          plugins: [
+            "@babel/transform-runtime",
+            "@babel/plugin-proposal-class-properties",
+            "@babel/plugin-proposal-object-rest-spread"
+          ]
         }
       }
     ]

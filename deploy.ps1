@@ -24,7 +24,7 @@ function Run($command) {
 
 $repo = Split-Path -parent $PSCommandPath
 
-foreach($package in "totem-timeline", "totem-timeline-react", "totem-timeline-signalr") {
+foreach($package in "totem-timeline", "totem-timeline-signalr", "totem-timeline-vue") {
   cd "$repo\src\$package\dist"
 
   Run "Set-NpmToken"

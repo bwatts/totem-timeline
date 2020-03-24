@@ -6,7 +6,7 @@ let connectionStart = null;
 
 export default {
   enable: (url, configure) => {
-    let onChanged = Timeline.configureQueryHub({ subscribeToChanged, unsubscribeFromChanged });
+    let onChanged = Timeline.webQuery.enableHub({ subscribeToChanged, unsubscribeFromChanged });
 
     let builder = new HubConnectionBuilder().withUrl(url || "/hubs/query");
 

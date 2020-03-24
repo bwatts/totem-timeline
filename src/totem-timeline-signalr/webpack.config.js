@@ -4,7 +4,7 @@ var nodeExternals = require("webpack-node-externals");
 module.exports = {
   mode: "development",
   context: path.resolve(__dirname),
-  entry: "./queryHub.js",
+  entry: "./index.js",
   resolve: {
     extensions: [".js"]
   },
@@ -24,8 +24,13 @@ module.exports = {
         test: /\.js$/,
         loader: "babel-loader",
         exclude: /node_modules/,
-        query: {
-          presets: ["env"]
+        options: {
+          presets: ["@babel/preset-env"],
+          plugins: [
+            "@babel/transform-runtime",
+            "@babel/plugin-proposal-class-properties",
+            "@babel/plugin-proposal-object-rest-spread"
+          ]
         }
       }
     ]

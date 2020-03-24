@@ -1,58 +1,14 @@
-import Moment from "moment";
-import { Subject, timer } from "rxjs";
+import { observeEvents, appendEvent } from "./events";
+import { Subject } from "rxjs";
 import { concatMap } from "rxjs/operators";
 
 let eventTypes = new Map();
-let events = new Subject();
-let position = 0;
 
-export function appendEvent(cause, type, data) {
-  let e = !data ? {} : Object.assign({}, data);
-
-  e.$position = position++;
-  e.$cause = cause;
-  e.$type = type;
-  e.$when = Moment();
-
-  events.next(e);
-}
-
-export function scheduleEvent(whenOccurs, cause, type, data) {
-  let e = !data ? {} : Object.assign({}, data);
-
-  e.$whenOccurs = Moment(whenOccurs);
-  e.$position = position++;
-  e.$cause = cause;
-  e.$type = type;
-  e.$when = Moment();
-
-  events.next(e);
-}
-
-function appendScheduledEvent(e) {
-  let occurred = Object.assign({}, e);
-
-  delete occurred.$whenOccurs;
-
-  occurred.$position = position++;
-  occurred.$cause = e.$position;
-  occurred.$type = e.$type;
-  occurred.$when = Moment();
-
-  events.next(occurred);
-}
-
-events.subscribe(e => {
+observeEvents().subscribe(e => {
   let eventType = eventTypes.get(e.$type);
 
   if(eventType) {
-    eventType.observe(e);
-  }
-
-  if(e.$whenOccurs) {
-    timer(e.$whenOccurs.toDate())
-    .take(1)
-    .subscribe(() => appendScheduledEvent(e));
+    eventType.enqueue(e);
   }
 });
 
@@ -61,19 +17,18 @@ events.subscribe(e => {
 //
 
 class EventType {
-  observations = [];
-
   constructor(name) {
     this.name = name;
+    this.observations = [];
   }
 
   toString() {
     return this.name;
   }
 
-  observe(e) {
+  enqueue(e) {
     for(let observation of this.observations) {
-      observation.observe(e);
+      observation.enqueue(e);
     }
   }
 }
@@ -83,12 +38,12 @@ class EventType {
 //
 
 class Observation {
-  constructor(flowType, eventType, isScheduled, idPath, isFirst, method) {
+  constructor(flowType, eventType, isScheduled, idPath, canBeFirst, method) {
     this.flowType = flowType;
     this.eventType = eventType;
     this.isScheduled = isScheduled;
     this.idPath = idPath;
-    this.isFirst = isFirst;
+    this.canBeFirst = canBeFirst;
     this.method = method;
 
     eventType.observations.push(this);
@@ -98,33 +53,29 @@ class Observation {
     return `${this.eventType} => ${this.flowType}`;
   }
 
-  observe(e) {
+  enqueue(e) {
     let isScheduled = !!e.$whenOccurs;
 
-    if(isScheduled !== this.isScheduled) {
-      return;
+    if(isScheduled === this.isScheduled) {
+      let id = this.resolveId();
+
+      this.flowType.enqueue(e, id, this);
     }
+  }
 
-    let { flowType, eventType, idPath } = this;
-
+  resolveId() {
     let id = "";
 
-    if(idPath) {
-      for(let property of idPath) {
-        id = id[property];
+    for(let property of this.idPath) {
+      id = id[property];
 
-        if(typeof id === "undefined" || id === null || id === "") {
-          id = "";
-          break;
-        }
-      }
-
-      if(id === "") {
-        throw new Error(`Identifier path ${idPath} for event ${eventType} on flow ${flowType} has an undefined, null, or empty value`);
+      if(typeof id === "undefined" || id === null || id === "") {
+        id = "";
+        break;
       }
     }
 
-    flowType.enqueue(e, id, this);
+    return id;
   }
 }
 
@@ -139,15 +90,14 @@ export class FlowType {
     flowTypes.add(type);
   }
 
-  flowsById = new Map();
-  stoppedIds = new Set();
+  scopesById = new Map();
 
   constructor(declaration) {
     this.declaration = declaration;
 
     this.observations = readObservations(this);
 
-    this.isMultiInstance = this.observations.some(observation => observation.idPath);
+    this.isMultiInstance = this.observations.some(observation => observation.idPath.length > 0);
     this.isSingleInstance = !this.IsMultiInstance;
   }
 
@@ -156,40 +106,35 @@ export class FlowType {
   }
 
   enqueue(e, id, observation) {
-    if(this.stoppedIds.has(id)) {
-      return;
+    let existingScope = this.scopesById.get(id);
+
+    if(existingScope) {
+      existingScope.enqueue(e, observation);
     }
+    else if(this.isSingleInstance || observation.canBeFirst) {
+      let newScope = this.openScope(id);
 
-    let existingFlow = this.flowsById.get(id);
+      this.scopesById.set(id, newScope);
 
-    if(existingFlow) {
-      existingFlow.enqueue(e, observation);
-    }
-    else if(this.isSingleInstance || observation.isFirst) {
-      let newFlow = this.openScope(id);
-
-      this.flowsById.set(id, newFlow);
-
-      newFlow.enqueue(e, observation);
+      newScope.enqueue(e, observation);
     }
     else {
-      if(!observation.idPath) {
-        for(let flow of this.flowsById.values()) {
-          flow.enqueue(e, observation);
+      if(observation.idPath.length === 0) {
+        for(let scope of this.scopesById.values()) {
+          scope.enqueue(e, observation);
         }
       }
     }
   }
 
-  deleteFlow(id) {
-    this.flowsById.delete(id);
-  }
-
-  stopFlow(id) {
-    this.flowsById.delete(id);
-    this.stoppedIds.add(id);
+  deleteScope(id) {
+    this.scopesById.delete(id);
   }
 }
+
+//
+// Observation discovery
+//
 
 function readObservations(flowType) {
   let observations = [];
@@ -198,42 +143,72 @@ function readObservations(flowType) {
     let method = flowType.declaration.prototype[property];
 
     if(typeof method === "function") {
-      // ^              Start the method name
-      // \:             Check if the method is an observation
-      // (@?)           [1] Check if the event is scheduled
-      // (\w+)          [2] Event type
-      // (              [3] ID, if any
-      //   (            [4] ID path
-      //     \.         Property separator
-      //     \w+        Property name
-      //   )*           Property path (zero or more properties)
-      // )              End the ID, if any
-      // (\+?)          [5] Check if the observation can be first
-      // $              End the method name
+      let observation = tryReadObservation(flowType, property, method);
 
-      let nameMatch = /^\:(@?)(\w+)((\.\w+)*)(\+?)$/.exec(property);
-
-      if(nameMatch) {
-        let isScheduled = nameMatch[1] === "@";
-
-        let eventType = eventTypes.get(nameMatch[2]);
-
-        if(!eventType) {
-          eventType = new EventType(nameMatch[2]);
-
-          eventTypes.set(nameMatch[2], eventType);
-        }
-
-        let idPath = !nameMatch[3] ? null : nameMatch[3].substring(1).split(".");
-
-        let isFirst = nameMatch[nameMatch.length - 1] === "+";
-
-        observations.push(new Observation(flowType, eventType, isScheduled, idPath, isFirst, method));
+      if(observation) {
+        observations.push(observation);
       }
     }
   }
 
   return observations;
+}
+
+function tryReadObservation(flowType, property, method) {
+	let isScheduled = false;
+	let canBeFirst = false;
+	
+	if(property[0] === "@") {
+		isScheduled = true;
+		property = property.substring(1);
+	}
+	
+	if(property[property.length - 1] === "+") {
+		canBeFirst = true;
+		property = property.substring(0, property.length - 1);
+	}
+
+  let [eventType, idPath] = parseProperty(property);
+
+  return !eventType ? null : new Observation(flowType, eventType, isScheduled, idPath, canBeFirst, method);
+}
+
+function parseProperty(property) {
+  let [eventName, ...idPath] = property.split(".");
+
+  // ^                 Start the event name
+  // (                
+  //   -               Match a dash
+  //   [_a-zA-Z]+      Then one or more underscores or letters
+  //   [-_a-zA-Z0-9]*  Then zero or more dashes, underscores, letters, or numbers
+  // )                
+  // |                 Or match with no dash in the front, but at least one dash elsewhere
+  // (
+  //   [_a-zA-Z]+      Match one or more underscores or letters
+  //   -               Then a dash
+  //   [-_a-zA-Z0-9]*  Then zero or more dashes, underscores, letters, or numbers
+  // )
+  // $                 End the event name
+	
+	if(!eventName || !eventName.match(/^(-[_a-zA-Z]+[-_a-zA-Z0-9]*)|([_a-zA-Z]+-[-_a-zA-Z0-9]*)$/)) {
+		return [null, null];
+	}
+
+	for(let i = 0; i < idPath.length; i++) {
+		if(!idPath[i]) {
+			throw new Error(`Expected non-empty property in identifier path: ${property}`);
+		}
+	}
+
+  let eventType = eventTypes.get(eventName);
+
+  if(!eventType) {
+    eventType = new EventType(eventName);
+
+    eventTypes.set(eventName, eventType);
+  }
+
+  return [eventType, idPath];
 }
 
 //
@@ -242,7 +217,7 @@ function readObservations(flowType) {
 
 export class FlowScope {
   queue = new Subject();
-  done = false;
+  stopped = false;
 
   constructor(type, id) {
     this.type = type;
@@ -251,30 +226,31 @@ export class FlowScope {
     this.flow = new type.declaration();
     this.flow.$id = id;
 
-    this.queue
-      .pipe(concatMap(([e, observation]) => this.observe(e, observation)))
-      .subscribe();
+    this.observeQueue();
   }
 
   enqueue(e, observation) {
     this.queue.next([e, observation]);
   }
 
-  observe(e, observation) {
-    throw new Error("Expected an override");
+  observeQueue() {
+    let observeNext = concatMap(([e, observation]) =>
+      this.stopped ? Promise.resolve() : this.observe(e, observation));
+
+    this.queue.pipe(observeNext).subscribe();
   }
 
-  onObserved() {
-    if(this.done) {
-      this.type.deleteFlow(this.id);
-    }
-  }
+  stop(e, observation, error) {
+    this.stopped = true;
 
-  onObserveFailed(e, observation, error) {
     let { type, id } = this;
 
-    type.stopFlow(id);
+    type.deleteScope(id);
 
-    appendEvent(e.$position, "timeline:FlowStopped", { type, id, event: e, observation, error });
+    appendEvent(e.$position, "flow-stopped", { type, id, event: e, observation, error });
+  }
+
+  deleteFromType() {
+    this.type.deleteScope(this.id);
   }
 }
