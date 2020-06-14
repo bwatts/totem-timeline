@@ -16,7 +16,7 @@ test: off
 environment:
   NODEJS_VERSION: '10'
   NPM_TOKEN:
-    secure: 1e9RYr/BP1lnOoodXK42HDisojorUYg4gu2K4qZCkrZSUyzgX85ZXHvAmeQWb2TA
+    secure: krUnbEEsbA08zg09L02UH0H2QBOd/LtyqEzgjhtun+g4tQ/NxSGGgCgpb6GsgCBq
 
 install:
   - set NODE_ENV=development
