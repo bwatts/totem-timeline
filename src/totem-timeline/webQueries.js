@@ -5,7 +5,21 @@ export default function webQuery(loadedEventType, url, options) {
   let type = new WebQueryType(loadedEventType, url, options);
 
   return {
-    bind: (args, notify) => type.bind(args, notify)
+    getDefaultData() {
+      return {
+        loading: false,
+        loaded: false,
+        loadError: null,
+        subscribing: false,
+        subscribed: false,
+        subscribeError: null,
+        etag: null,
+        data: null
+      };
+    },
+    bind(args, notify) {
+      return type.bind(args, notify);
+    }
   };
 }
 
@@ -33,7 +47,7 @@ class WebQueryType {
   }
 
   appendLoadedEvent(data) {
-    appendEvent(null, this.loadedEventType, data);
+    appendEvent(null, null, this.loadedEventType, data);
   }
 
   getEndpoint(args) {
@@ -213,7 +227,7 @@ class WebQueryClientState {
   subscribed = false;
   subscribeError = null;
   etag = null;
-  data = {};
+  data = null;
 
   constructor(binding) {
     this.binding = binding;
@@ -248,7 +262,7 @@ class WebQueryClientState {
     this.loaded = false;
     this.loadError = new Error("Query not found");
     this.etag = WebQueryETag.tryFromHeader(response);
-    this.data = {};
+    this.data = null;
 
     this.updateBinding();
   }
@@ -258,7 +272,7 @@ class WebQueryClientState {
     this.loaded = false;
     this.loadError = error;
     this.etag = null;
-    this.data = {};
+    this.data = null;
 
     this.updateBinding();
   }
