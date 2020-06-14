@@ -1,22 +1,41 @@
 import { appendEvent, scheduleEvent } from "./events";
-import { FlowType, FlowScope } from "./flows";
+import { declareFlow, FlowScope } from "./flows";
 
-//
-// Declare a timeline type for the specified topic declaration
-//
-
-export default function(declaration) {
-  FlowType.declare(new TopicType(declaration));
-}
-
-class TopicType extends FlowType {
-  constructor(declaration) {
-    super(declaration);
+export default function declareTopic(options) {
+  if(!options || !options.name) {
+    throw Error("Topic declaration expected options with a name at minimum");
   }
 
-  openScope(id) {
-    return new TopicScope(this, id);
+  let { name, given, givenScheduled, when, whenScheduled } = options;
+
+  if(!(given || givenScheduled || when || whenScheduled)) {
+    throw Error(`Topic "${name}" expected any combination of the "given", "givenScheduled", "when", and "whenScheduled" options`);
   }
+
+  given = given || {};
+  givenScheduled = givenScheduled || {};
+  when = when || {};
+  whenScheduled = whenScheduled || {};
+
+  let observations = {};
+
+  let eventTypes = new Set([
+    ...Object.keys(given),
+    ...Object.keys(givenScheduled),
+    ...Object.keys(when),
+    ...Object.keys(whenScheduled)
+  ]);
+
+  for(let eventType of eventTypes) {
+    observations[eventType] = {
+      given: given[eventType],
+      givenScheduled: givenScheduled[eventType],
+      when: when[eventType],
+      whenScheduled: whenScheduled[eventType]
+    };
+  }
+
+  declareFlow(options, observations, TopicScope);
 }
 
 //
@@ -24,76 +43,105 @@ class TopicType extends FlowType {
 //
 
 class TopicScope extends FlowScope {
-  call = null;
+  newEvents = null;
 
   constructor(type, id) {
     super(type, id);
 
     if(this.flow.then) {
-      throw new Error("The .then property of a topic is reserved for timeline use");
+      throw new Error(`Topic "${type}" reserves the .then property for timeline use. Rename or remove it from the "data" option.`);
     }
 
-    this.flow.then = (type, data) => {
-      this.expectCall();
-      this.call.addEvent({ type, data });
-    };
+    this.flow.then = (type, data) =>
+      this.newEvents.push({ type, data });
 
-    this.flow.then.schedule = (whenOccurs, type, data) => {
-      this.expectCall();
-      this.call.addEvent({ whenOccurs, type, data });
-    };
+    this.flow.then.schedule = (whenOccurs, type, data) =>
+      this.newEvents.push({ whenOccurs, type, data });
   }
 
-  expectCall() {
-    if(!this.call) {
-      throw new Error("Topic must be making a call to perform this operation");
+  async observe(e, observation) {
+    this.event = e;
+    this.observation = observation;
+    this.newEvents = [];
+
+    try {
+      this.tryCallGiven();
+
+      await this.tryCallWhen();
+    }
+    catch(error) {
+      this.stop(e, error);
+    }
+    finally {
+      this.event = null;
+      this.observation = null;
+      this.newEvents = null;
     }
   }
 
-  observe(e, observation) {
-    return Promise.resolve()
-      .then(() => this.makeCall(e, observation))
-      .catch(error => this.stop(e, observation, error));
-  }
-  
-  makeCall(e, observation) {
-    this.call = new TopicCall(e.$position);
+  tryCallGiven() {
+    let { $topic, $whenOccurs } = this.event;
+    let { given, givenScheduled } = this.observation;
 
-    return Promise
-      .resolve(observation.method.call(this.flow, e))
-      .then(result => {
-        this.call.appendNewEvents();
+    if($topic && $topic.type === this.type && $topic.id === this.id) {
+      return;
+    }
 
-        if(result === false) {
-          this.deleteFromType();
-        }
-      })
-      .finally(() => this.call = null);
-  }
-}
+    let method = $whenOccurs ? givenScheduled : given;
 
-//
-// A single call to a topic observation
-//
-
-class TopicCall {
-  newEvents = [];
-
-  constructor(cause) {
-    this.cause = cause;
+    if(method) {
+      method.call(this.flow, this.event);
+    }
   }
 
-  addEvent(e) {
-    this.newEvents.push(e);
+  async tryCallWhen() {
+    let { $whenOccurs } = this.event;
+    let { when, whenScheduled } = this.observation;
+
+    let method = $whenOccurs ? whenScheduled : when;
+
+    if(!method) {
+      return;
+    }
+
+    let result = await Promise.resolve(method.call(this.flow, this.event));
+
+    if(result === false) {
+      this.unsubscribe();
+    }
+
+    for(let newEvent of this.appendNewEvents()) {
+      if(this.stopped) {
+        break;
+      }
+
+      this.tryCallImmediateGiven(newEvent);
+    }
   }
 
   appendNewEvents() {
-    for(let { whenOccurs, type, data } of this.newEvents) {
-      if(whenOccurs) {
-        scheduleEvent(this.cause, whenOccurs, type, data);
-      }
-      else {
-        appendEvent(this.cause, type, data);
+    let cause = this.event.$position;
+    let topic = { type: this.type, id: this.id };
+
+    return this.newEvents.map(({ whenOccurs, type, data }) =>
+      whenOccurs ?
+        scheduleEvent(cause, topic, whenOccurs, type, data) :
+        appendEvent(cause, topic, type, data));
+  }
+
+  tryCallImmediateGiven(newEvent) {
+    let observation = this.type.observations[newEvent.$type];
+
+    if(observation) {
+      let method = newEvent.$whenOccurs ? observation.givenScheduled : observation.given;
+
+      if(method) {
+        try {
+          method.call(this.flow, newEvent);
+        }
+        catch(error) {
+          this.stop(newEvent, error);
+        }
       }
     }
   }

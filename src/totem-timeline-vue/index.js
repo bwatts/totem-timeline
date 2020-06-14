@@ -1,57 +1,29 @@
 //
-// Bind a timeline query to the data of a Vue component
+// Build a mixin that binds query data to instances of the component
 //
 
-export default function UI(query, component) {
-  mix(component, getOrAddMixin(query));
-
-  return component;
-}
-
-//
-// Keep and reuse mixins for each bound query
-//
-
-let mixinsByQuery = new Map();
-
-function getOrAddMixin(query) {
-  let mixin = mixinsByQuery.get(query);
-
-  if(!mixin) {
-    mixin = buildMixin(query);
-
-    mixinsByQuery.set(query, mixin);
-  }
-
-  return mixin;
-}
-
-//
-// Make a mixin that binds a query to the data of a Vue component
-//
-
-function buildMixin(query) {
+export default function QueryData(query, ...props) {
+  let binder = createBinder(query, props);
   let bindings = new Map();
 
   return {
+    data() {
+      return binder.defaultData();
+    },
     created() {
-      let binding = bindUI(query, this);
+      let binding = binder(this);
 
       bindings.set(this, binding);
 
       binding.subscribe();
     },
-
     updated() {
       bindings.get(this).resubscribeIfArgsChanged();
     },
-
     beforeDestroy() {
       bindings.get(this).unsubscribe();
-
       bindings.delete(this);
     },
-
     watch: {
       $props: {
         deep: true,
@@ -63,34 +35,45 @@ function buildMixin(query) {
   };
 }
 
-function bindUI(query, ui) {
-  let binding = query.bind(ui, () => {
-    for(let prop in ui.$data) {
-      if(prop in binding.data) {
-        ui[prop] = binding.data[prop];
-      }
-    }
-  });
+//
+// Build a function that binds query data to a component instance
+//
 
-  return binding;
+function createBinder(query, props) {
+  let defaultData = getDefaultData(query, props);
+
+  function binder(component) {
+    let binding = query.bind(component, () => {
+      for(let prop in defaultData) {
+        component[prop] = binding.data[prop];
+      }
+    });
+
+    return binding;
+  }
+
+  binder.defaultData = function() {
+    return { ...defaultData };
+  }
+
+  return binder;
 }
 
-//
-// Add the UI mixin to the collection specified by the component
-//
+function getDefaultData(query, props) {
+  let defaultData = query.getDefaultData();
+  let propsData = {};
 
-function mix(component, mixin) {
-  let { mixins } = component;
+  if(props.length === 0) {
+    return defaultData;
+  }
 
-  if(!mixins) {
-    component.mixins = [mixin];
-  }
-  else if(!Array.isArray(mixins)) {
-    throw new Error("Expected an array of mixins on the component");
-  }
-  else {
-    if(!mixins.includes(mixin)) {
-      mixins.push(mixin);
+  for(let prop of props) {
+    if(!defaultData.hasOwnProperty(prop)) {
+      console.warn(`[Totem warn]: Property "${prop}" is not defined on the query but referenced in the component. Add this property to the query, or remove it from the mixin declaration.`);
     }
+
+    propsData[prop] = defaultData[prop];
   }
+
+  return propsData;
 }

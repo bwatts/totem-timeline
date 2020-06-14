@@ -1,69 +1,126 @@
 import Moment from "moment";
-import { FlowType, FlowScope } from "./flows";
+import { declareFlow, FlowScope } from "./flows";
 
-//
-// Declare a timeline type for the specified query declaration. If the query is
-// multi-instance, the first argument is an id selector.
-//
+export default function declareQuery(options) {
+  if(!options || !options.name) {
+    throw Error("Query declaration expected options with a name at minimum");
+  }
 
-export default function(arg0, arg1) {
-  let declaration = arg1 || arg0;
-  let argsToId = arg1 ? arg0 : null;
+  let { name, given, givenScheduled, argsToId } = options;
 
-  let type = new QueryType(declaration, argsToId);
+  if(!(given || givenScheduled)) {
+    throw Error(`Query "${name}" expected any combination of the "given" and "givenScheduled" options`);
+  }
 
-  FlowType.declare(type);
+  let observations = {};
+
+  given = given || {};
+  givenScheduled = givenScheduled || {};
+
+  let eventTypes = new Set([
+    ...Object.keys(given),
+    ...Object.keys(givenScheduled)
+  ]);
+
+  for(let eventType of eventTypes) {
+    observations[eventType] = {
+      given: given[eventType],
+      givenScheduled: givenScheduled[eventType]
+    };
+  }
+
+  let type = declareFlow(options, observations, QueryScope);
+
+  if(type.isMultiInstance && !argsToId) {
+    throw new Error(`Multi-instance query "${name}" require an id selector. Specify the "argsToId" option in the declaration.`);
+  }
+
+  if(type.isSingleInstance && argsToId) {
+    throw new Error(`Single-instance query "${name}" does not require an id selector. Remove the "argsToId" option in the declaration.`);
+  }
 
   return {
-    bind: (args, notify) => type.bind(args, notify)
+    getDefaultData() {
+      return filterPrivateData(type.data());
+    },
+    bind(args, notify) {
+      return new QueryBinding(type, argsToId, args, notify);
+    }
   };
 }
 
 //
-// A type of query observing events on the timeline
+// Copy the publicly-visible data from a query instance
 //
 
-class QueryType extends FlowType {
-  constructor(declaration, argsToId) {
-    super(declaration);
+function filterPrivateData(instance) {
+  let data = {};
 
-    if(this.isMultiInstance && !argsToId) {
-      throw new Error(`Multi-instance queries require an id selector: Timeline.query(args => [select id], ...`);
+  for(let prop in instance) {
+    if(!prop.startsWith("_")) {
+      data[prop] = instance[prop];
     }
-
-    this.argsToId = argsToId;
   }
 
-  bind(args, notify) {
-    return new QueryBinding(this, args, notify);
+  return data;
+}
+
+//
+// The scope of a query's activity on the timeline
+//
+
+class QueryScope extends FlowScope {
+  bindings = new Set();
+  isNew = true;
+
+  constructor(type, id) {
+    super(type, id);
+
+    this.flow.$whenCreated = Moment();
+    this.flow.$whenChanged = this.flow.$whenCreated;
   }
 
-  openScope(id) {
-    return new QueryScope(this, id);
+  subscribe(binding) {
+    this.bindings.add(binding);
+
+    binding.update(filterPrivateData(this.flow));
   }
 
-  resolveId(args) {
-    if(!this.argsToId) {
-      return "";
-    }
+  unsubscribe(binding) {
+    this.bindings.delete(binding);
 
-    while(typeof args === "function") {
-      args = args();
+    if(this.bindings === 0 && this.isNew) {
+      this.type.deleteScope(this.id);
     }
-
-    return this.argsToId(args) || "";
   }
 
-  getOrOpenScope(id) {
-    let scope = this.scopesById.get(id);
+  observe(e, { given, givenScheduled }) {
+    this.isNew = false;
 
-    if(!scope) {
-      scope = this.openScope(id);
-
-      this.scopesById.set(id, scope);
+    try {
+      this.callGiven(e, e.$whenOccurs ? givenScheduled : given);
+    }
+    catch(error) {
+      this.stop(e, error);
     }
 
-    return scope;
+    return Promise.resolve();
+  }
+
+  callGiven(e, method) {
+    let result = method.call(this.flow, e);
+
+    if(result === false) {
+      this.unsubscribe();
+    }
+
+    this.flow.$whenChanged = Moment();
+
+    let data = filterPrivateData(this.flow);
+
+    for(let binding of this.bindings) {
+      binding.update(data);
+    }
   }
 }
 
@@ -72,12 +129,30 @@ class QueryType extends FlowType {
 //
 
 class QueryBinding {
-  constructor(type, args, notify) {
+  constructor(type, argsToId, args, notify) {
     this.type = type;
+    this.argsToId = argsToId;
     this.args = args;
     this.notify = notify;
+  }
 
-    this.resolveId = () => type.resolveId(args);
+  resolveId() {
+    let { type, argsToId, args } = this;
+    let id = "";
+
+    if(argsToId) {
+      while(typeof args === "function") {
+        args = args();
+      }
+
+      id = (argsToId(args) || "").toString();
+
+      if(!id) {
+        throw new Error(`Query "${type}" expects an identifier from the "argsToId" option`);
+      }
+    }
+
+    return id;
   }
 
   subscribe() {
@@ -106,76 +181,5 @@ class QueryBinding {
     this.data = data;
 
     this.notify();
-  }
-}
-
-//
-// The scope of a query instance's activity on the timeline
-//
-
-class QueryScope extends FlowScope {
-  bindings = new Set();
-  isNew = true;
-
-  constructor(type, id) {
-    super(type, id);
-
-    this.flow.$whenCreated = Moment();
-    this.flow.$whenChanged = this.flow.$whenCreated;
-  }
-
-  subscribe(binding) {
-    this.bindings.add(binding);
-
-    binding.update(this.toData());
-  }
-
-  unsubscribe(binding) {
-    this.bindings.delete(binding);
-
-    if(this.bindings === 0 && this.isNew) {
-      this.type.deleteScope(this.id);
-    }
-  }
-  
-  observe(e, observation) {
-    this.isNew = false;
-
-    try {
-      let result = observation.method.call(this.flow, e);
-
-      if(result === false) {
-        this.deleteFromType();
-      }
-
-      this.flow.$whenChanged = Moment();
-
-      this.updateBindings();
-    }
-    catch(error) {
-      this.stop(e, observation, error);
-    }
-
-    return Promise.resolve();
-  }
-
-  toData() {
-    let data = {};
-
-    for(let prop in this.flow) {
-      if(!prop.startsWith("_")) {
-        data[prop] = this.flow[prop];
-      }
-    }
-
-    return data;
-  }
-
-  updateBindings() {
-    let data = this.toData();
-
-    for(let binding of this.bindings) {
-      binding.update(data);
-    }
   }
 }

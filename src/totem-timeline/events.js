@@ -1,70 +1,58 @@
 import Moment from "moment";
 import { Subject, timer } from "rxjs";
-import { take } from "rxjs/operators";
+import { filter, take } from "rxjs/operators";
 
 let events = new Subject();
 let position = 0;
 
-export function appendEvent(cause, type, data) {
-  let e = !data ? {} : Object.assign({}, data);
+export function appendEvent(cause, topic, type, data) {
+  let e = { ...data };
 
   e.$position = position++;
-  e.$cause = cause;
   e.$type = type;
+  e.$cause = cause;
+  e.$topic = topic;
   e.$when = Moment();
+  e.$whenOccurs = null;
 
   events.next(e);
+
+  return e;
 }
 
-export function scheduleEvent(cause, whenOccurs, type, data) {
-  let e = !data ? {} : Object.assign({}, data);
+export function scheduleEvent(cause, topic, whenOccurs, type, data) {
+  let e = { ...data };
 
-  e.$whenOccurs = Moment(whenOccurs);
   e.$position = position++;
-  e.$cause = cause;
   e.$type = type;
+  e.$cause = cause;
+  e.$topic = topic;
   e.$when = Moment();
+  e.$whenOccurs = Moment(whenOccurs);
 
   events.next(e);
+
+  return e;
 }
 
 export function observeEvents() {
   return events.asObservable();
 }
 
-events.subscribe(e => {
+events
+.pipe(filter(e => e.$whenOccurs))
+.subscribe(setScheduleTimer);
 
-
-
-  if(e.$whenOccurs) {
-    let { $position, $cause, $type, $when, ...rest } = e;
-
-    console.log(`[${$position}][@] ${$type}`, rest);
-  }
-  else {
-    let { $whenOccurs, $position, $cause, $type, $when, ...rest } = e;
-
-    console.log(`[${$position}] ${$type}`, rest);
-  } 
-
-
-
-  if(e.$whenOccurs) {
-    timer(e.$whenOccurs.toDate())
-    .pipe(take(1))
-    .subscribe(() => appendScheduledEvent(e));
-  }
-});
-
-function appendScheduledEvent(e) {
-  let occurred = Object.assign({}, e);
-
-  delete occurred.$whenOccurs;
-
-  occurred.$position = position++;
-  occurred.$cause = e.$position;
-  occurred.$type = e.$type;
-  occurred.$when = Moment();
-
-  events.next(occurred);
+function setScheduleTimer(e) {
+  timer(e.$whenOccurs.toDate())
+  .pipe(take(1))
+  .subscribe(() => events.next({
+    ...e,
+    $position: position++,
+    $type: e.$type,
+    $cause: e.$position,
+    $topic: null,
+    $when: Moment(),
+    $whenOccurs: null
+  }));
 }
